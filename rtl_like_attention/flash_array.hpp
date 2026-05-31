@@ -117,8 +117,8 @@ public:
         std::ofstream out(path);
         out << std::fixed << std::setprecision(7);
         out << "{\n";
-        out << "  \"cellWidth\": 236,\n";
-        out << "  \"cellHeight\": 176,\n";
+        out << "  \"cellWidth\": 360,\n";
+        out << "  \"cellHeight\": 136,\n";
         out << "  \"frames\": [\n";
 
         dumpSnapshot(out, 0);
@@ -179,6 +179,10 @@ private:
         std::memcpy(dst.data(), t.data_ptr<float>(), n * sizeof(float));
     }
 
+    static float traceFloat(float value) {
+        return std::isfinite(value) ? value : 0.0f;
+    }
+
     void dumpSnapshot(std::ostream& out, int tickNo) {
         out << "    {\n";
         out << "      \"tick\": " << tickNo << ",\n";
@@ -202,22 +206,16 @@ private:
             out << "\"index\":" << static_cast<int>(c.byteIndex()) << ",";
             out << "\"delay\":" << s.delay << ",";
             out << "\"string\":\"" << c.label() << "\",";
-            out << "\"calcu0String\":\"" << c.floatCalcu0String() << "\",";
-            out << "\"calcu1String\":\"" << c.floatCalcu1String() << "\",";
             out << "\"hString\":\"" << c.floatHString() << "\",";
             out << "\"vString\":\"" << c.floatVString() << "\",";
             out << "\"oldString\":\"" << c.floatOldString() << "\",";
             out << "\"color\":" << c.color() << ",";
-            out << "\"useCalcu0\":" << (c.useFloatCalcu0() ? "true" : "false") << ",";
-            out << "\"useCalcu1\":" << (c.useFloatCalcu1() ? "true" : "false") << ",";
             out << "\"useH\":" << (c.useFloatH() ? "true" : "false") << ",";
             out << "\"useV\":" << (c.useFloatV() ? "true" : "false") << ",";
             out << "\"useOld\":" << (c.useFloatOld() ? "true" : "false") << ",";
-            out << "\"floatCalcu0\":" << c.floatCalcu0() << ",";
-            out << "\"floatCalcu1\":" << c.floatCalcu1() << ",";
-            out << "\"floatH\":" << c.floatH() << ",";
-            out << "\"floatV\":" << c.floatV() << ",";
-            out << "\"floatOld\":" << c.floatOld();
+            out << "\"floatH\":" << traceFloat(c.floatH()) << ",";
+            out << "\"floatV\":" << traceFloat(c.floatV()) << ",";
+            out << "\"floatOld\":" << traceFloat(c.floatOld());
             out << "}";
         }
 

@@ -32,8 +32,8 @@ class TraceView:
         self.trace = trace
         self.frames = trace["frames"]
         self.tick = 0
-        self.cell_w = trace.get("cellWidth", 236)
-        self.cell_h = trace.get("cellHeight", 176)
+        self.cell_w = trace.get("cellWidth", 360)
+        self.cell_h = trace.get("cellHeight", 136)
         self.pad_x = 18
         self.pad_y = 56
 
@@ -103,7 +103,7 @@ class TraceView:
         y0 = self.pad_y + (max_y - cell["y"]) * self.cell_h
         x1 = x0 + self.cell_w - 8
         y1 = y0 + self.cell_h - 8
-        active = any(cell.get(key, "") != "" for key in ("calcu0String", "calcu1String", "hString", "vString", "oldString"))
+        active = any(cell.get(key, "") != "" for key in ("hString", "vString", "oldString"))
         color = COLORS[cell["color"] % len(COLORS)] if active else "#333333"
         fill = "#fff3f3" if active and cell["color"] % 4 == 0 else DEFAULT_FILL
 
@@ -136,7 +136,7 @@ class TraceView:
         delay = cell.get("delay")
         if delay is not None and cell["index"] <= delay:
             self.canvas.create_text(
-                x0 + 126,
+                x0 + 146,
                 y0 + 34,
                 text=f"delay={cell['index']}/{delay}",
                 anchor="nw",
@@ -145,15 +145,13 @@ class TraceView:
             )
 
         base = 58
-        self.line(x0, y0, base + 0, "Cal0", cell.get("useCalcu0", False), cell.get("floatCalcu0", 0.0), cell.get("calcu0String", ""), color, active)
-        self.line(x0, y0, base + 20, "Cal1", cell.get("useCalcu1", False), cell.get("floatCalcu1", 0.0), cell.get("calcu1String", ""), color, active)
-        self.line(x0, y0, base + 40, "H", cell["useH"], cell["floatH"], cell.get("hString", cell.get("string", "")), color, active)
-        self.line(x0, y0, base + 60, "V", cell.get("useV", False), cell.get("floatV", 0.0), cell.get("vString", ""), color, active)
-        self.line(x0, y0, base + 80, "Old", cell["useOld"], cell["floatOld"], cell.get("oldString", ""), color, active)
+        self.line(x0, y0, base + 0, "H", cell["useH"], cell["floatH"], cell.get("hString", cell.get("string", "")), color, active)
+        self.line(x0, y0, base + 22, "V", cell.get("useV", False), cell.get("floatV", 0.0), cell.get("vString", ""), color, active)
+        self.line(x0, y0, base + 44, "Old", cell["useOld"], cell["floatOld"], cell.get("oldString", ""), color, active)
 
     def line(self, x0, y0, dy, name, enabled, value, tag, color, active):
-        tag = tag[:8]
-        text = f"{name:<5}= {value: .4f} {tag:<8}" if enabled else f"{name:<5}= {'':>9} {tag:<8}"
+        tag = tag[:28]
+        text = f"{name:<3}= {value: .4f} {tag:<28}" if enabled else f"{name:<3}= {'':>9} {tag:<28}"
         self.canvas.create_text(
             x0 + 8,
             y0 + dy,

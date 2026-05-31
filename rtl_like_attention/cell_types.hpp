@@ -2,6 +2,44 @@
 
 #include "cell.hpp"
 
+namespace label {
+inline int u(uint8_t value) {
+    return static_cast<int>(value);
+}
+
+inline int j(const Cell::PhaseInput& in) {
+    return u(in.byteIndexFromLeft);
+}
+
+inline int jFromExp(const Cell::PhaseInput& in) {
+    return u(in.byteIndexFromExp);
+}
+
+inline int dimFromY(const Cell::PhaseInput& in) {
+    return HEAD_DIMENTION - 1 - u(in.y);
+}
+
+inline int kDim(const Cell::PhaseInput& in) {
+    return u(in.y) - 1;
+}
+
+inline std::string one(const char* name, int i) {
+    return std::string(name) + "[" + std::to_string(i) + "]";
+}
+
+inline std::string two(const char* name, int i, int k) {
+    return std::string(name) + "[" + std::to_string(i) + "][" + std::to_string(k) + "]";
+}
+
+inline std::string upto(const char* name, int i, int last) {
+    return std::string(name) + "[" + std::to_string(i) + "][:" + std::to_string(last) + "]";
+}
+
+inline std::string prefix(const char* name, int last) {
+    return std::string(name) + "[:" + std::to_string(last) + "]";
+}
+}
+
 class KLoadCell : public Cell {
 public:
     explicit KLoadCell(unsigned int delay, uint8_t y, const std::string& tag1, const std::string& tag2)
@@ -10,7 +48,7 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.ksram[((in.kaddrReg + in.index) * HEAD_DIMENTION + in.y - 1) % SRAM_SIZE],
-            in.index < TILE_SIZE ? "K" : ""
+            in.index < TILE_SIZE ? label::two("K", label::u(in.index), label::kDim(in)) : ""
         };
     }
 };
@@ -26,7 +64,9 @@ protected:
             (!in.vaddrFifo.empty() && in.byteIndexFromExp < TILE_SIZE && dim >= 0)
                 ? in.vsram[((in.vaddrFifo.front() + in.byteIndexFromExp) * HEAD_DIMENTION + dim) % SRAM_SIZE]
                 : in.floatHFromSelf,
-            (!in.vaddrFifo.empty() && in.byteIndexFromExp < TILE_SIZE && dim >= 0) ? "V" : ""
+            (!in.vaddrFifo.empty() && in.byteIndexFromExp < TILE_SIZE && dim >= 0)
+                ? label::two("V", label::jFromExp(in), dim)
+                : ""
         };
     }
 };
@@ -39,7 +79,7 @@ protected:
     FloatOut phaseV(const PhaseInput& in) override {
         return {
             in.qsram[(in.qaddrReg + in.index) % SRAM_SIZE],
-            in.index < TILE_SIZE ? "Q" : ""
+            in.index < TILE_SIZE ? label::one("Q", label::u(in.index)) : ""
         };
     }
 };
@@ -50,9 +90,23 @@ public:
         : Cell({Option::UseH}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
+        std::string out;
+        if (in.byteIndexFromLeft < TILE_SIZE) {
+            if (in.tag1 == "K") {
+                out = label::two("K", label::j(in), label::kDim(in));
+            } else if (in.tag1 == "V") {
+                out = label::two("V", label::j(in), label::dimFromY(in));
+            } else if (in.tag1 == "S") {
+                out = label::one("S", label::j(in));
+            } else {
+                out = in.tag1;
+            }
+        } else if (in.byteIndexFromLeft == TILE_SIZE) {
+            out = (in.tag1 == "S") ? "old_m" : in.tag1;
+        }
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 : ""
+            out
         };
     }
 };
@@ -65,7 +119,7 @@ protected:
     FloatOut phaseV(const PhaseInput& in) override {
         return {
             in.floatVFromTop,
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("Q", label::j(in)) : ""
         };
     }
 
@@ -82,7 +136,9 @@ protected:
 
         return {
             score,
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 + "*" + in.tag2 : ""
+            in.byteIndexFromLeft < TILE_SIZE
+                ? label::one("S", label::u(lane)) + "=Q[:]*" + label::one("K", label::u(lane)) + "[:]"
+                : ""
         };
     }
 };
@@ -95,18 +151,25 @@ protected:
     FloatOut phaseV(const PhaseInput& in) override {
         return {
             in.floatVFromTop,
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("P", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
         };
     }
 
     FloatOut phaseH(const PhaseInput& in) override {
+        const int j = label::j(in);
+        const int dim = label::dimFromY(in);
         return {
             (in.byteIndexFromLeft == 0)
                 ? in.floatHFromLeft * in.floatVFromTop
             : (in.byteIndexFromLeft == TILE_SIZE)
                 ? in.floatHFromSelf + in.floatOldFromSelf * in.floatVFromTop
                 : in.floatHFromSelf + in.floatHFromLeft * in.floatVFromTop,
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 + "*" + in.tag2 : ""
+            in.byteIndexFromLeft < TILE_SIZE
+                ? label::one("P", j) + "*" + label::two("V", j, dim) + "->" + label::upto("local_O", dim, j)
+            : in.byteIndexFromLeft == TILE_SIZE
+                ? label::one("new_O", dim) + "=b*old_O+" + label::one("local_O", dim)
+                : ""
         };
     }
 
@@ -115,7 +178,7 @@ protected:
             (in.byteIndexFromLeft == TILE_SIZE)
                 ? in.floatHFromSelf + in.floatOldFromSelf * in.floatVFromTop
                 : in.floatOldFromSelf,
-            ""
+            in.byteIndexFromLeft == TILE_SIZE ? label::one("old_O", label::dimFromY(in)) : ""
         };
     }
 };
@@ -126,9 +189,10 @@ public:
         : Cell({Option::UseH}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
+        const int lane = TILE_SIZE - label::u(in.y);
         return {
             in.byteIndexFromLeft == TILE_SIZE - 1 ? in.floatHFromLeft : in.floatHFromSelf,
-            in.byteIndexFromLeft == TILE_SIZE - 1 ? in.tag1 : ""
+            in.byteIndexFromLeft == TILE_SIZE - 1 ? label::one("S", lane) : ""
         };
     }
 };
@@ -139,9 +203,20 @@ public:
         : Cell({Option::UseH}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
+        std::string out;
+        if (in.tag1 == "LocalL" && in.byteIndexFromLeft == TILE_SIZE) {
+            out = "new_l";
+        } else if (in.tag1 == "O") {
+            const int dim = label::dimFromY(in);
+            if (in.byteIndexFromLeft == TILE_SIZE) {
+                out = label::one("new_O", dim);
+            }
+        } else if (in.byteIndexFromLeft == TILE_SIZE) {
+            out = in.tag1;
+        }
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft == TILE_SIZE ? in.tag1 : ""
+            out
         };
     }
 };
@@ -152,9 +227,13 @@ public:
         : Cell({Option::UseH}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
+        const bool finalMux = in.tag1 == "V";
+        const int idx = label::j(in);
         return {
             in.floatHFromLeftColumn[in.byteIndexFromLeft % TILE_SIZE],
-            in.byteIndexFromLeft < TILE_SIZE ? in.tag1 : ""
+            in.byteIndexFromLeft < TILE_SIZE
+                ? (finalMux ? label::one("new_O", idx) : label::one("S", idx))
+                : ""
         };
     }
 };
@@ -162,25 +241,27 @@ protected:
 class MaxOldMCell : public Cell {
 public:
     explicit MaxOldMCell(unsigned int delay, uint8_t y, const std::string& tag1, const std::string& tag2)
-        : Cell({Option::UseCalcu0, Option::UseH, Option::UseOld}, y, delay, tag1, tag2) {}
+        : Cell({Option::InfInitV, Option::UseH, Option::UseV, Option::UseOld}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.byteIndexFromLeft < TILE_SIZE ? in.floatHFromLeft : in.floatOldFromSelf,
-            in.byteIndexFromLeft < TILE_SIZE ? "S" : in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("S", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
         };
     }
 
-    FloatOut phaseCalcu0(const PhaseInput& in) override {
+    FloatOut phaseV(const PhaseInput& in) override {
         return {
             (in.byteIndexFromLeft == 0)
                 ? in.floatHFromLeft
             : (in.byteIndexFromLeft < TILE_SIZE)
-                ? ((in.floatCalcu0FromSelf > in.floatHFromLeft) ? in.floatCalcu0FromSelf : in.floatHFromLeft)
+                ? ((in.floatVFromSelf > in.floatHFromLeft) ? in.floatVFromSelf : in.floatHFromLeft)
             : (in.byteIndexFromLeft == TILE_SIZE)
-                ? ((in.floatCalcu0FromSelf > in.floatOldFromSelf) ? in.floatCalcu0FromSelf : in.floatOldFromSelf)
+                ? ((in.floatVFromSelf > in.floatOldFromSelf) ? in.floatVFromSelf : in.floatOldFromSelf)
                 : 0.0f,
-            ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::prefix("local_m", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "new_m" : ""
         };
     }
 
@@ -189,9 +270,9 @@ protected:
             (in.byteIndexFromLeft == TILE_SIZE && in.lastFromLeft == 1)
                 ? 0.0f
             : (in.byteIndexFromLeft == TILE_SIZE)
-                ? ((in.floatCalcu0FromSelf > in.floatOldFromSelf) ? in.floatCalcu0FromSelf : in.floatOldFromSelf)
+                ? ((in.floatVFromSelf > in.floatOldFromSelf) ? in.floatVFromSelf : in.floatOldFromSelf)
                 : in.floatOldFromSelf,
-            ""
+            in.byteIndexFromLeft == TILE_SIZE ? "old_m=new_m" : ""
         };
     }
 };
@@ -204,7 +285,8 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft < TILE_SIZE ? "S" : in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("S", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
         };
     }
 };
@@ -217,7 +299,8 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromLeft - in.floatOldFromMaxOld,
-            in.byteIndexFromLeft < TILE_SIZE ? "N" : in.byteIndexFromLeft == TILE_SIZE ? "a" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("N", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "a=old_m-new_m" : ""
         };
     }
 };
@@ -230,7 +313,8 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft < TILE_SIZE ? "S" : in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("S", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "old_m" : ""
         };
     }
 };
@@ -243,7 +327,8 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             std::exp(in.floatHFromLeft / std::sqrt(static_cast<float>(HEAD_DIMENTION))),
-            in.byteIndexFromLeft < TILE_SIZE ? "P" : in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("P", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "b=exp(a)" : ""
         };
     }
 };
@@ -256,14 +341,16 @@ protected:
     FloatOut phaseV(const PhaseInput& in) override {
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft < TILE_SIZE ? "P" : in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("P", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
         };
     }
 
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromLeft,
-            in.byteIndexFromLeft < TILE_SIZE ? "P" : in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("P", label::j(in)) :
+            in.byteIndexFromLeft == TILE_SIZE ? "b" : ""
         };
     }
 };
@@ -271,25 +358,26 @@ protected:
 class LocalLCell : public Cell {
 public:
     explicit LocalLCell(unsigned int delay, uint8_t y, const std::string& tag1, const std::string& tag2)
-        : Cell({Option::UseCalcu0, Option::UseH, Option::UseOld}, y, delay, tag1, tag2) {}
+        : Cell({Option::UseH, Option::UseV, Option::UseOld}, y, delay, tag1, tag2) {}
 protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.byteIndexFromLeft == TILE_SIZE
-                ? in.floatOldFromSelf * in.floatHFromLeft + in.floatCalcu0FromSelf
+                ? in.floatOldFromSelf * in.floatHFromLeft + in.floatVFromSelf
                 : 0.0f,
-            in.byteIndexFromLeft == TILE_SIZE - 1 ? "local_l" : in.byteIndexFromLeft == TILE_SIZE ? "new_l" : ""
+            in.byteIndexFromLeft == TILE_SIZE - 1 ? "local_l" :
+            in.byteIndexFromLeft == TILE_SIZE ? "new_l=old_l*b+local_l" : ""
         };
     }
 
-    FloatOut phaseCalcu0(const PhaseInput& in) override {
+    FloatOut phaseV(const PhaseInput& in) override {
         return {
             (in.byteIndexFromLeft == 0)
                 ? in.floatHFromLeft
             : (in.byteIndexFromLeft < TILE_SIZE)
-                ? in.floatCalcu0FromSelf + in.floatHFromLeft
+                ? in.floatVFromSelf + in.floatHFromLeft
                 : 0.0f,
-            ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::prefix("local_l", label::j(in)) : ""
         };
     }
 
@@ -298,9 +386,9 @@ protected:
             (in.byteIndexFromLeft == TILE_SIZE && in.lastFromLeft == 1)
                 ? 0.0f
             : (in.byteIndexFromLeft == TILE_SIZE)
-                ? in.floatOldFromSelf * in.floatHFromLeft + in.floatCalcu0FromSelf
+                ? in.floatOldFromSelf * in.floatHFromLeft + in.floatVFromSelf
                 : in.floatOldFromSelf,
-            ""
+            in.byteIndexFromLeft == TILE_SIZE ? "old_l=new_l" : ""
         };
     }
 
@@ -321,7 +409,7 @@ protected:
             in.byteIndexFromLeft == 0
                 ? (in.floatHFromLeft != 0.0f ? 1.0f / in.floatHFromLeft : 0.0f)
                 : in.floatVFromSelf,
-            in.byteIndexFromLeft == 0 ? "recip" : ""
+            in.byteIndexFromLeft == 0 ? "1/new_l" : ""
         };
     }
 };
@@ -334,7 +422,7 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromLeft * in.floatVFromTop,
-            in.byteIndexFromLeft < TILE_SIZE ? "O" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("O", label::j(in)) + "=new_O/new_l" : ""
         };
     }
 };
@@ -347,7 +435,7 @@ protected:
     FloatOut phaseH(const PhaseInput& in) override {
         return {
             in.floatHFromSelf,
-            in.byteIndexFromLeft < TILE_SIZE ? "OSRAM" : ""
+            in.byteIndexFromLeft < TILE_SIZE ? label::one("OSRAM", label::j(in)) : ""
         };
     }
 
